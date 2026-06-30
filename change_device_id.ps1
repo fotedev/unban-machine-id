@@ -11,6 +11,9 @@ param(
     [switch]$UpdateProfileListPaths
 )
 
+# Load assembly required for ProtectedData (not auto-loaded in Windows PowerShell 5.1)
+Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue
+
 if ($Mode -eq 'LegacyReset' -or $Mode -eq 'RepairProfiles') {
     if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         Write-Host "Please run this script as Administrator!" -ForegroundColor Red
@@ -20,11 +23,15 @@ if ($Mode -eq 'LegacyReset' -or $Mode -eq 'RepairProfiles') {
 
 function Get-Sha256Hex {
     param(
-        [Parameter(Mandatory=$true)][string]$Input
+        # NOTE: Do NOT name this $Input — that is a reserved PowerShell automatic
+        # variable (pipeline enumerator). Naming it $Input causes PS 5.1 to
+        # resolve it to an empty enumerator, making GetBytes() receive "" and
+        # every hash becoming SHA256("") = e3b0c44...
+        [Parameter(Mandatory=$true)][string]$InputText
     )
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Input)
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($InputText)
         $hash = $sha.ComputeHash($bytes)
         return ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
     } finally {
@@ -99,7 +106,10 @@ function Get-RandomHex {
     )
     $bytesLen = [math]::Ceiling($Length / 2)
     $bytes = New-Object byte[] $bytesLen
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    # Use GetBytes() for compatibility with Windows PowerShell 5.1 (.NET Framework)
+    # ::Fill() is .NET Core / .NET 5+ only
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
     $hex = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
     return $hex.Substring(0, $Length)
 }
@@ -193,7 +203,7 @@ function Hash-Signals {
     $hashed = @{}
     foreach ($k in $Signals.Keys) {
         $v = [string]$Signals[$k]
-        $hashed[$k] = Get-Sha256Hex -Input ("$Salt|$k|$v")
+        $hashed[$k] = Get-Sha256Hex -InputText ("$Salt|$k|$v")
     }
     return $hashed
 }
@@ -217,6 +227,18 @@ function Score-Match {
     }
     if ($total -le 0) { return 0.0 }
     return [math]::Round(($hit / $total), 4)
+}
+
+# ConvertFrom-Json returns PSCustomObject for nested objects, not [hashtable].
+# This helper normalises either type into a plain [hashtable] so Score-Match
+# and Hash-Signals always receive the correct type.
+function ConvertTo-SignalHashtable {
+    param([Parameter(Mandatory=$true)]$Obj)
+    if ($null -eq $Obj)               { return @{} }
+    if ($Obj -is [hashtable])          { return $Obj }
+    $ht = @{}
+    $Obj.PSObject.Properties | ForEach-Object { $ht[$_.Name] = [string]$_.Value }
+    return $ht
 }
 
 function Get-ConsensusSnapshot {
@@ -271,11 +293,13 @@ if ($Mode -eq 'Fingerprint') {
     if ($state.snapshots) { $existing = @($state.snapshots) }
 
     $maxHistory = 12
-    $recent = $existing | Select-Object -Last $maxHistory
+    # Wrap in @() so $recent is always an [array], never $null, even when $existing is empty
+    $recent = @($existing | Select-Object -Last $maxHistory)
 
     $lastSignals = $null
     if ($recent.Count -gt 0) {
-        $lastSignals = $recent[-1].signals
+        # Convert from PSCustomObject (ConvertFrom-Json output) to hashtable
+        $lastSignals = ConvertTo-SignalHashtable $recent[-1].signals
     }
 
     $consensusSignals = Get-ConsensusSnapshot -Snapshots $recent -Weights $weights
@@ -308,7 +332,7 @@ if ($Mode -eq 'Fingerprint') {
     Write-State -Path $StatePath -State $state
 
     $fingerprintIdMaterial = ($hashedSignals.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ';'
-    $fingerprintId = Get-Sha256Hex -Input ("v1|$($state.salt)|$fingerprintIdMaterial")
+    $fingerprintId = Get-Sha256Hex -InputText ("v1|$($state.salt)|$fingerprintIdMaterial")
 
     $out = [ordered]@{
         mode = 'Fingerprint'
