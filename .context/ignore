@@ -1,0 +1,59 @@
+# Context Tool — Ignore Patterns
+# One pattern per line.  # Comments and blank lines are ignored.
+# Edit this file to add or remove patterns. The tool ignores ONLY the patterns listed here.
+
+# Version control
+.git
+
+# Dependency directories
+node_modules
+venv
+.venv
+.pnpm-store
+
+# Editor & IDE files
+.vscode
+.idea
+.cursor
+.windsurf
+.github
+.agent
+.agents
+.speckit
+.specify
+desktop.ini
+.DS_Store
+
+# Temporary, cache, and build files
+__pycache__
+*.pyc
+dist
+build
+.next
+.vercel
+.index_ignore
+compare-template.bak
+compare_4.txt
+compare_of_compare.txt
+migrations.old
+
+# Tool inputs, outputs, and scripts
+context_output
+.context
+files.txt
+arena.txt
+structure.txt
+llm.txt
+compare.md
+compare.txt
+compare_*.md
+compare_*.txt
+files_*.txt
+arena_*.txt
+structure_*.txt
+models
+models/old
+get-shit-done
+gifts
+agents
+scripts

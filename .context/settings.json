@@ -1,0 +1,10 @@
+{
+  "output_dir": "context_output",
+  "output_format": "md",
+  "model_count": 2,
+  "gemini_judge": false,
+  "compact_mode": false,
+  "archive": false,
+  "archive_dir": "ARCHIVE",
+  "inputs_dir": ".context/inputs"
+}
